@@ -279,21 +279,9 @@
         const l = 0.5;
         const [scores, setScores] = useState([]);
         const [locked, setLocked] = useState(false);
-        // 2a) Add new state
+        // pick state per round
         const [hasPicked, setHasPicked] = useState(false);
-        const [playerName, setPlayerName] = useState(null);
-        const [showNameModal, setShowNameModal] = useState(false);
 
-        // 2b) On initial mount, check for saved name:
-        useEffect(() => {
-          try {
-            const saved = localStorage.getItem('color_guess_player_name');
-            if (saved) setPlayerName(saved);
-            else setShowNameModal(true);
-          } catch (e) {
-            setShowNameModal(true);
-          }
-        }, []);
 
         const target = targets[Math.min(round, 4)];
         const targetHex = hexFromHSL(target[0], target[1], target[2]);
@@ -302,7 +290,7 @@
         const neutralHex = '#64748b'; // slate-500
         const previewHex = hasPicked ? guessHex : neutralHex;
 
-        // 2c) Modify onWheelPick to mark pick made:
+        // 2c) Modify onWheelPick to mark pick made:xs
         const onWheelPick = ({ h: nh, s: ns }) => {
           if (locked) return;
           setH(nh);
@@ -331,23 +319,7 @@
 
         const avg = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
 
-        // 2f) At game finish, persist score to local leaderboard for the day:
-        useEffect(() => {
-          if (!finished) return;
-          try {
-            const key = 'leaderboard-' + dailyKey;
-            const name = playerName || 'Anonimo';
-            const entry = { name, score: avg, ts: Date.now() };
-            const arr = JSON.parse(localStorage.getItem(key) || '[]');
-            arr.push(entry);
-            arr.sort((a,b) => b.score - a.score);
-            localStorage.setItem(key, JSON.stringify(arr.slice(0, 20)));
-          } catch (e) {}
-        }, [finished]);
 
-        // 2g) Load leaderboard for render in summary:
-        let dailyBoard = [];
-        try { dailyBoard = JSON.parse(localStorage.getItem('leaderboard-' + dailyKey) || '[]'); } catch (e) {}
 
         return React.createElement(
           "div",
@@ -423,7 +395,6 @@
                   " su 5 round."
                 ),
                 // 3) Optional copy hint
-                React.createElement("p", { className: "text-xs text-slate-400 mt-1" }, "Nota: questa leaderboard è locale al browser. Per una classifica globale serve un backend (es. Supabase)."),
                 React.createElement(
                   "div",
                   { className: "mt-4 grid md:grid-cols-5 gap-3" },
@@ -441,59 +412,12 @@
                     )
                   )
                 ),
-                // 2i) Render a simple local leaderboard under the summary:
-                React.createElement(
-                  "div",
-                  { className: "mt-8" },
-                  React.createElement("h4", { className: "text-lg font-semibold" }, "Leaderboard (solo questo dispositivo) – ", dailyKey),
-                  React.createElement(
-                    "ol",
-                    { className: "mt-3 space-y-2" },
-                    dailyBoard.map((e, i) => (
-                      React.createElement(
-                        "li",
-                        { key: i, className: "flex items-center justify-between p-3 rounded-xl bg-slate-800 border border-slate-700" },
-                        React.createElement("span", { className: "text-sm" }, i + 1, ". ", e.name || 'Anonimo'),
-                        React.createElement("span", { className: "font-bold" }, e.score, "%")
-                      )
-                    ))
-                  )
-                ),
                 React.createElement(
                   "button",
                   { onClick: () => window.location.reload(), className: "mt-6 px-4 py-2 rounded-xl font-semibold shadow bg-emerald-500 hover:brightness-110" },
                   "Gioca di nuovo"
                 )
               ),
-            // 2j) Add a startup modal to capture player name:
-            showNameModal && React.createElement(
-              "div",
-              { className: "fixed inset-0 z-50 flex items-center justify-center bg-black/60" },
-              React.createElement(
-                "div",
-                { className: "w-full max-w-md bg-slate-800 border border-slate-700 rounded-2xl p-6" },
-                React.createElement("h3", { className: "text-xl font-bold" }, "Come ti chiami?"),
-                React.createElement("p", { className: "text-sm text-slate-300 mt-1" }, "Serve per la leaderboard locale di oggi."),
-                React.createElement("input", {
-                  id: "playerNameInput",
-                  className: "mt-4 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 outline-none",
-                  placeholder: "Nome o nickname",
-                  onKeydown: (e) => { if (e.key === 'Enter') { const v = e.target.value.trim(); if (v) { try { localStorage.setItem('color_guess_player_name', v); } catch(_){} setPlayerName(v); setShowNameModal(false); } } }
-                }),
-                React.createElement(
-                  "div",
-                  { className: "mt-4 flex gap-3" },
-                  React.createElement("button", {
-                    className: "px-4 py-2 rounded-xl font-semibold shadow bg-emerald-500 hover:brightness-110",
-                    onClick: () => { const el = document.getElementById('playerNameInput'); const v = (el && el.value || '').trim(); if (v) { try { localStorage.setItem('color_guess_player_name', v); } catch(_){} setPlayerName(v); setShowNameModal(false); } }
-                  }, "Conferma"),
-                  React.createElement("button", {
-                    className: "px-4 py-2 rounded-xl font-semibold shadow bg-slate-600",
-                    onClick: () => { setPlayerName(null); setShowNameModal(false); }
-                  }, "Gioca anonimo")
-                )
-              )
-            )
           )
         );
       }
