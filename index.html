@@ -116,7 +116,7 @@
       }
 
       // ===================== ColorWheel (canvas) =====================
-      function ColorWheel({ h, s, onChange, className }) {
+      function ColorWheel({ h, s, onPick, className }) {
         const canvasRef = useRef(null);
         const pointerRef = useRef({ x: 0, y: 0, down: false });
 
@@ -203,7 +203,7 @@
           const canvas = canvasRef.current;
           if (!canvas) return;
 
-          const handle = (clientX, clientY) => {
+          const handleClick = (clientX, clientY) => {
             const rect = canvas.getBoundingClientRect();
             if (!rect.width || !rect.height) return;
             const x = clientX - rect.left;
@@ -219,47 +219,28 @@
             ang = (ang * 180) / Math.PI + 90;
             if (ang < 0) ang += 360;
 
-            onChange({ h: ang, s: sat });
+            if (typeof onPick === 'function') onPick({ h: ang, s: sat });
             pointerRef.current.x = x;
             pointerRef.current.y = y;
           };
 
-          const onDown = (e) => {
-            pointerRef.current.down = true;
-            if (e.touches) {
+          const onClick = (e) => {
+            if (e.touches && e.touches[0]) {
               const t = e.touches[0];
-              handle(t.clientX, t.clientY);
+              handleClick(t.clientX, t.clientY);
             } else {
-              handle(e.clientX, e.clientY);
+              handleClick(e.clientX, e.clientY);
             }
           };
-          const onMove = (e) => {
-            if (!pointerRef.current.down) return;
-            if (e.touches) {
-              const t = e.touches[0];
-              handle(t.clientX, t.clientY);
-            } else {
-              handle(e.clientX, e.clientY);
-            }
-          };
-          const onUp = () => (pointerRef.current.down = false);
 
-          canvas.addEventListener("mousedown", onDown);
-          window.addEventListener("mousemove", onMove);
-          window.addEventListener("mouseup", onUp);
-          canvas.addEventListener("touchstart", onDown, { passive: true });
-          window.addEventListener("touchmove", onMove, { passive: true });
-          window.addEventListener("touchend", onUp, { passive: true });
+          canvas.addEventListener('click', onClick, { passive: true });
+          canvas.addEventListener('touchstart', onClick, { passive: true });
 
           return () => {
-            canvas.removeEventListener("mousedown", onDown);
-            window.removeEventListener("mousemove", onMove);
-            window.removeEventListener("mouseup", onUp);
-            canvas.removeEventListener("touchstart", onDown);
-            window.removeEventListener("touchmove", onMove);
-            window.removeEventListener("touchend", onUp);
+            canvas.removeEventListener('click', onClick);
+            canvas.removeEventListener('touchstart', onClick);
           };
-        }, [onChange]);
+        }, [onPick]);
 
         return React.createElement(
           "div",
@@ -283,7 +264,8 @@
         const [finished, setFinished] = useState(false);
         const [h, setH] = useState(200);
         const [s, setS] = useState(0.6);
-        const [l, setL] = useState(0.5);
+        // Step 5a: luminosità is fixed at 0.5
+        const l = 0.5;
         const [scores, setScores] = useState([]);
         const [locked, setLocked] = useState(false);
 
@@ -291,14 +273,12 @@
         const targetHex = hexFromHSL(target[0], target[1], target[2]);
         const guessHex = hexFromHSL(h, s, l);
 
-        const onWheelChange = ({ h: nh, s: ns }) => {
+        // Step 6: onWheelPick handler for single-click guess
+        const onWheelPick = ({ h: nh, s: ns }) => {
           if (locked) return;
-          setH(nh); setS(ns);
-        };
-
-        const onGuess = () => {
-          if (locked) return;
-          const pct = percentageFromColors(target, [h, s, l]);
+          setH(nh);
+          setS(ns);
+          const pct = percentageFromColors(target, [nh, ns, l]);
           setScores((prev) => [...prev, pct]);
           setLocked(true);
           if (round >= 4) setFinished(true);
@@ -345,53 +325,11 @@
                 React.createElement(
                   "div",
                   null,
-                  React.createElement("h3", { className: "text-lg font-semibold mb-3" }, "Scegli con la ruota"),
-                  React.createElement(ColorWheel, { h, s, onChange: onWheelChange }),
-                  React.createElement(
-                    "div",
-                    { className: "mt-4" },
-                    React.createElement(
-                      "label",
-                      { className: "text-sm text-slate-300 flex justify-between" },
-                      React.createElement("span", null, "Tonalità (Hue)"),
-                      React.createElement("span", null, Math.round(h), "°")
-                    ),
-                    React.createElement("input", {
-                      type: "range", min: 0, max: 360, step: 1, value: h,
-                      onChange: (e) => !locked && setH(parseFloat(e.target.value)),
-                      className: "w-full", disabled: locked
-                    })
-                  ),
-                  React.createElement(
-                    "div",
-                    { className: "mt-4" },
-                    React.createElement(
-                      "label",
-                      { className: "text-sm text-slate-300 flex justify-between" },
-                      React.createElement("span", null, "Saturazione"),
-                      React.createElement("span", null, Math.round(s * 100), "%")
-                    ),
-                    React.createElement("input", {
-                      type: "range", min: 0, max: 1, step: 0.01, value: s,
-                      onChange: (e) => !locked && setS(parseFloat(e.target.value)),
-                      className: "w-full", disabled: locked
-                    })
-                  ),
-                  React.createElement(
-                    "div",
-                    { className: "mt-4" },
-                    React.createElement(
-                      "label",
-                      { className: "text-sm text-slate-300 flex justify-between" },
-                      React.createElement("span", null, "Luminosità"),
-                      React.createElement("span", null, Math.round(l * 100), "%")
-                    ),
-                    React.createElement("input", {
-                      type: "range", min: 0, max: 1, step: 0.01, value: l,
-                      onChange: (e) => setL(parseFloat(e.target.value)),
-                      className: "w-full"
-                    })
-                  ),
+                  // Step 5b: Update heading above the wheel
+                  React.createElement("h3", { className: "text-lg font-semibold mb-3" }, "Clicca una volta sulla ruota"),
+                  // Step 3b: Use onPick instead of onChange
+                  React.createElement(ColorWheel, { h, s, onPick: onWheelPick }),
+                  // Step 3c: Remove the three slider blocks
                   React.createElement(
                     "div",
                     { className: "mt-4" },
@@ -400,20 +338,10 @@
                       style: { background: guessHex },
                     })
                   ),
+                  // Step 4: Remove Guess button, keep only Next
                   React.createElement(
                     "div",
                     { className: "mt-6 flex gap-3" },
-                    React.createElement(
-                      "button",
-                      {
-                        disabled: locked,
-                        onClick: onGuess,
-                        className:
-                          "px-4 py-2 rounded-xl font-semibold shadow " +
-                          ( !locked ? "bg-emerald-500 hover:brightness-110" : "bg-slate-600 cursor-not-allowed" ),
-                      },
-                      "Guess"
-                    ),
                     React.createElement(
                       "button",
                       {
