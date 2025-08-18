@@ -9,12 +9,18 @@
     <!-- React 18 UMD -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   </head>
   <body class="bg-slate-900 text-slate-100">
     <div id="root"></div>
 
     <script>
       const { useEffect, useMemo, useRef, useState } = React;
+      // Supabase client
+      const supabase = window.supabase.createClient(
+        'https://bwnueajcoapokcylbftb.supabase.co',
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ3bnVlYWpjb2Fwb2tjeWxiZnRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU1MDIyNjMsImV4cCI6MjA3MTA3ODI2M30.smKM5ZuMhOHElmaCRaZHcxYmqveRUO_LRZvuviJCyGE'
+      );
 
       // ===================== Utils =====================
       function hashString(str) {
@@ -281,8 +287,10 @@
         const [locked, setLocked] = useState(false);
         // pick state per round
         const [hasPicked, setHasPicked] = useState(false);
-
-
+        // player + leaderboard (Supabase)
+        const [playerName, setPlayerName] = useState(null);
+        const [showNameModal, setShowNameModal] = useState(false);
+        const [dailyBoard, setDailyBoard] = useState([]);
         const target = targets[Math.min(round, 4)];
         const targetHex = hexFromHSL(target[0], target[1], target[2]);
         const guessHex = hexFromHSL(h, s, l);
@@ -319,105 +327,185 @@
 
         const avg = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
 
+        // On mount, ask for player name (from localStorage or show modal)
+        useEffect(() => {
+          try {
+            const saved = localStorage.getItem('color_guess_player_name');
+            if (saved) setPlayerName(saved);
+            else setShowNameModal(true);
+          } catch (e) {
+            setShowNameModal(true);
+          }
+        }, []);
 
+        // On game finish, insert score into Supabase and fetch leaderboard
+        useEffect(() => {
+          if (!finished || playerName === undefined) return;
+          (async () => {
+            try {
+              const name = playerName || 'Anonimo';
+              // Insert score
+              const { error: insErr } = await supabase
+                .from('daily_scores')
+                .insert({ date_key: dailyKey, name, score: avg });
+              if (insErr) console.error('supabase insert error', insErr);
 
+              // Fetch leaderboard for the day (top 20)
+              const { data, error } = await supabase
+                .from('daily_scores')
+                .select('*')
+                .eq('date_key', dailyKey)
+                .order('score', { ascending: false })
+                .limit(20);
+              if (!error && Array.isArray(data)) setDailyBoard(data);
+            } catch (e) {
+              console.error('supabase error', e);
+            }
+          })();
+        }, [finished, playerName, avg, dailyKey]);
+
+        // Build inner children array to avoid comma/paren mistakes
+        const innerChildren = [
+          React.createElement(
+            "div",
+            { className: "text-center" },
+            React.createElement("h1", { className: "text-3xl md:text-4xl font-extrabold tracking-tight" }, "Color Guesser"),
+            React.createElement("p", { className: "text-slate-300 mt-1" }, "Indovina il colore in 5 round. Nuovi colori ogni giorno (chiave: ", dailyKey, ").")
+          ),
+          !finished && React.createElement(
+            "div",
+            { className: "grid md:grid-cols-2 gap-8 mt-10" },
+            React.createElement(
+              "div",
+              null,
+              React.createElement("h3", { className: "text-lg font-semibold mb-3" }, `Colore da abbinare (Round ${round + 1}/5)`),
+              React.createElement("div", {
+                className: "aspect-square rounded-2xl shadow-inner border border-slate-700",
+                style: { background: targetHex },
+              })
+            ),
+            React.createElement(
+              "div",
+              null,
+              React.createElement("h3", { className: "text-lg font-semibold mb-3" }, "Clicca una volta sulla ruota"),
+              React.createElement(ColorWheel, { h, s, onPick: onWheelPick }),
+              React.createElement(
+                "div",
+                { className: "mt-4" },
+                React.createElement("div", {
+                  className: "aspect-[3/1] rounded-2xl border border-slate-700",
+                  style: { background: previewHex },
+                })
+              ),
+              React.createElement(
+                "div",
+                { className: "mt-6 flex gap-3" },
+                React.createElement(
+                  "button",
+                  {
+                    disabled: !locked,
+                    onClick: onNext,
+                    className:
+                      "px-4 py-2 rounded-xl font-semibold shadow " +
+                      ( locked ? "bg-sky-500 hover:brightness-110" : "bg-slate-600 cursor-not-allowed" ),
+                  },
+                  round < 4 ? "Next round" : "Vedi riepilogo"
+                )
+              ),
+              locked &&
+                React.createElement(
+                  "div",
+                  { className: "mt-4 p-4 rounded-2xl border border-slate-700 bg-slate-900/40" },
+                  React.createElement("p", { className: "text-sm" }, "Accuratezza round: ", React.createElement("span", { className: "font-bold" }, scores[scores.length - 1], "%")),
+                  React.createElement("p", { className: "text-xs text-slate-400" }, "(0% = molto lontano • 100% = perfetto)")
+                )
+            )
+          ),
+          finished && React.createElement(
+            "div",
+            { className: "mt-10" },
+            React.createElement("h3", { className: "text-xl font-bold" }, "Riepilogo"),
+            React.createElement("p", { className: "text-slate-300 mt-1" }, "Media: ",
+              React.createElement("span", { className: "font-extrabold" }, avg, "%"),
+              " su 5 round."
+            ),
+            React.createElement(
+              "div",
+              { className: "mt-4 grid md:grid-cols-5 gap-3" },
+              scores.map((sc, i) =>
+                React.createElement(
+                  "div",
+                  { key: i, className: "p-4 rounded-2xl border border-slate-700 bg-slate-900/40 text-center" },
+                  React.createElement("div", { className: "text-xs text-slate-400" }, "Round ", i + 1),
+                  React.createElement("div", { className: "text-2xl font-extrabold" }, sc, "%"),
+                  React.createElement(
+                    "div",
+                    { className: "mt-2 h-3 rounded-full bg-slate-700 overflow-hidden" },
+                    React.createElement("div", { className: "h-full", style: { width: sc + "%", background: "linear-gradient(to right, #22c55e, #3b82f6)" } })
+                  )
+                )
+              )
+            ),
+            React.createElement(
+              "div",
+              { className: "mt-8" },
+              React.createElement("h4", { className: "text-lg font-semibold" }, "Leaderboard del giorno"),
+              React.createElement(
+                "ol",
+                { className: "mt-3 space-y-2" },
+                (dailyBoard || []).map((e, i) =>
+                  React.createElement(
+                    "li",
+                    { key: e.id || i, className: "flex items-center justify-between p-3 rounded-xl bg-slate-800 border border-slate-700" },
+                    React.createElement("span", { className: "text-sm" }, i + 1, ". ", e.name || 'Anonimo'),
+                    React.createElement("span", { className: "font-bold" }, e.score, "%")
+                  )
+                )
+              )
+            ),
+            React.createElement(
+              "button",
+              { onClick: () => window.location.reload(), className: "mt-6 px-4 py-2 rounded-xl font-semibold shadow bg-emerald-500 hover:brightness-110" },
+              "Gioca di nuovo"
+            )
+          )
+        ];
         return React.createElement(
           "div",
           { className: "min-h-[100vh] w-full flex items-start justify-center py-10" },
           React.createElement(
             "div",
             { className: "w-full max-w-5xl rounded-3xl bg-slate-800/60 p-6 md:p-10 shadow-2xl border border-slate-700" },
+            ...innerChildren
+          ),
+          // Startup Name Modal at bottom of App return
+          showNameModal && React.createElement(
+            "div",
+            { className: "fixed inset-0 z-50 flex items-center justify-center bg-black/60" },
             React.createElement(
               "div",
-              { className: "text-center" },
-              React.createElement("h1", { className: "text-3xl md:text-4xl font-extrabold tracking-tight" }, "Color Guesser"),
-              React.createElement("p", { className: "text-slate-300 mt-1" }, "Indovina il colore in 5 round. Nuovi colori ogni giorno (chiave: ", dailyKey, ").")
-            ),
-
-            !finished &&
+              { className: "w-full max-w-md bg-slate-800 border border-slate-700 rounded-2xl p-6" },
+              React.createElement("h3", { className: "text-xl font-bold" }, "Come ti chiami?"),
+              React.createElement("p", { className: "text-sm text-slate-300 mt-1" }, "Il nome serve per la leaderboard giornaliera."),
+              React.createElement("input", {
+                id: "playerNameInput",
+                className: "mt-4 w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 outline-none",
+                placeholder: "Nome o nickname",
+                onKeyDown: (e) => { if (e.key === 'Enter') { const v = e.target.value.trim(); if (v) { try { localStorage.setItem('color_guess_player_name', v); } catch(_){} setPlayerName(v); setShowNameModal(false); } } }
+              }),
               React.createElement(
                 "div",
-                { className: "grid md:grid-cols-2 gap-8 mt-10" },
-                React.createElement(
-                  "div",
-                  null,
-                  React.createElement("h3", { className: "text-lg font-semibold mb-3" }, `Colore da abbinare (Round ${round + 1}/5)`),
-                  React.createElement("div", {
-                    className: "aspect-square rounded-2xl shadow-inner border border-slate-700",
-                    style: { background: targetHex },
-                  })
-                ),
-                React.createElement(
-                  "div",
-                  null,
-                  React.createElement("h3", { className: "text-lg font-semibold mb-3" }, "Clicca una volta sulla ruota"),
-                  React.createElement(ColorWheel, { h, s, onPick: onWheelPick }),
-                  React.createElement(
-                    "div",
-                    { className: "mt-4" },
-                    React.createElement("div", {
-                      className: "aspect-[3/1] rounded-2xl border border-slate-700",
-                      style: { background: previewHex },
-                    })
-                  ),
-                  React.createElement(
-                    "div",
-                    { className: "mt-6 flex gap-3" },
-                    React.createElement(
-                      "button",
-                      {
-                        disabled: !locked,
-                        onClick: onNext,
-                        className:
-                          "px-4 py-2 rounded-xl font-semibold shadow " +
-                          ( locked ? "bg-sky-500 hover:brightness-110" : "bg-slate-600 cursor-not-allowed" ),
-                      },
-                      round < 4 ? "Next round" : "Vedi riepilogo"
-                    )
-                  ),
-                  locked &&
-                    React.createElement(
-                      "div",
-                      { className: "mt-4 p-4 rounded-2xl border border-slate-700 bg-slate-900/40" },
-                      React.createElement("p", { className: "text-sm" }, "Accuratezza round: ", React.createElement("span", { className: "font-bold" }, scores[scores.length - 1], "%")),
-                      React.createElement("p", { className: "text-xs text-slate-400" }, "(0% = molto lontano • 100% = perfetto)")
-                    )
-                )
-              ),
-
-            finished &&
-              React.createElement(
-                "div",
-                { className: "mt-10" },
-                React.createElement("h3", { className: "text-xl font-bold" }, "Riepilogo"),
-                React.createElement("p", { className: "text-slate-300 mt-1" }, "Media: ",
-                  React.createElement("span", { className: "font-extrabold" }, avg, "%"),
-                  " su 5 round."
-                ),
-                // 3) Optional copy hint
-                React.createElement(
-                  "div",
-                  { className: "mt-4 grid md:grid-cols-5 gap-3" },
-                  scores.map((sc, i) =>
-                    React.createElement(
-                      "div",
-                      { key: i, className: "p-4 rounded-2xl border border-slate-700 bg-slate-900/40 text-center" },
-                      React.createElement("div", { className: "text-xs text-slate-400" }, "Round ", i + 1),
-                      React.createElement("div", { className: "text-2xl font-extrabold" }, sc, "%"),
-                      React.createElement(
-                        "div",
-                        { className: "mt-2 h-3 rounded-full bg-slate-700 overflow-hidden" },
-                        React.createElement("div", { className: "h-full", style: { width: sc + "%", background: "linear-gradient(to right, #22c55e, #3b82f6)" } })
-                      )
-                    )
-                  )
-                ),
-                React.createElement(
-                  "button",
-                  { onClick: () => window.location.reload(), className: "mt-6 px-4 py-2 rounded-xl font-semibold shadow bg-emerald-500 hover:brightness-110" },
-                  "Gioca di nuovo"
-                )
-              ),
+                { className: "mt-4 flex gap-3" },
+                React.createElement("button", {
+                  className: "px-4 py-2 rounded-xl font-semibold shadow bg-emerald-500 hover:brightness-110",
+                  onClick: () => { const el = document.getElementById('playerNameInput'); const v = (el && el.value || '').trim(); if (v) { try { localStorage.setItem('color_guess_player_name', v); } catch(_){} setPlayerName(v); setShowNameModal(false); } }
+                }, "Conferma"),
+                React.createElement("button", {
+                  className: "px-4 py-2 rounded-xl font-semibold shadow bg-slate-600",
+                  onClick: () => { setPlayerName(null); setShowNameModal(false); }
+                }, "Gioca anonimo")
+              )
+            )
           )
         );
       }
